@@ -11,7 +11,8 @@ static const char *const TAG = "xiaomi_miscale";
 void XiaomiMiscale::dump_config() {
   ESP_LOGCONFIG(TAG, "Xiaomi Miscale");
   LOG_SENSOR("  ", "Weight", this->weight_);
-  LOG_SENSOR("  ", "Impedance", this->impedance_);
+  LOG_SENSOR("  ", "Heart Rate Sensor", this->heart_rate_);
+  LOG_SENSOR("  ", "Impedance (50 kHz)", this->impedance_);
 }
 
 bool XiaomiMiscale::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
@@ -38,7 +39,7 @@ bool XiaomiMiscale::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
 
     if (this->impedance_ != nullptr) {
       if (res->version == 1) {
-        ESP_LOGW(TAG, "Impedance is only supported on version 2. Your scale was identified as version 1.");
+        ESP_LOGW(TAG, "Impedance is only supported on version 2 or later. Your scale was identified as version 1.");
       } else {
         if (res->impedance.has_value()) {
           this->impedance_->publish_state(*res->impedance);
@@ -48,6 +49,18 @@ bool XiaomiMiscale::parse_device(const esp32_ble_tracker::ESPBTDevice &device) {
         }
       }
     }
+    /*if (this->impedance_250_ != nullptr) {
+      if (res->version < 2) {
+        ESP_LOGW(TAG, "Impedance is only supported on version 3 or later. Your scale was identified as version 1 or 2.");
+      } else {
+        if (res->impedance_250.has_value()) {
+          this->impedance_250_->publish_state(*res->impedance_250);
+        } else {
+          if (clear_impedance_250_)
+            this->impedance_250_->publish_state(NAN);
+        }
+      }
+    }*/
     success = true;
   }
 
@@ -60,6 +73,8 @@ optional<ParseResult> XiaomiMiscale::parse_header_(const esp32_ble_tracker::Serv
     result.version = 1;
   } else if (service_data.uuid == esp32_ble_tracker::ESPBTUUID::from_uint16(0x181B) && service_data.data.size() == 13) {
     result.version = 2;
+  } else if (service_data.uuid == esp32_ble_tracker::ESPBTUUID::from_uint16(0xFE95) && service_data.data.size() == 11) {
+    result.version = 3;
   } else {
     ESP_LOGVV(TAG,
               "parse_header(): Couldn't identify scale version or data size was not correct. UUID: %s, data_size: %d",
@@ -73,8 +88,10 @@ optional<ParseResult> XiaomiMiscale::parse_header_(const esp32_ble_tracker::Serv
 bool XiaomiMiscale::parse_message_(const std::vector<uint8_t> &message, ParseResult &result) {
   if (result.version == 1) {
     return parse_message_v1_(message, result);
-  } else {
+  } else if (result.version == 2) {
     return parse_message_v2_(message, result);
+  } else {
+    return parse_message_v3_(message, result);
   }
 }
 
@@ -133,13 +150,46 @@ bool XiaomiMiscale::parse_message_v2_(const std::vector<uint8_t> &message, Parse
   }
 
   if (has_impedance) {
-    // impedance, 2 bytes, 16-bit
+    // impedance 50 kHz, 2 bytes, 16-bit
     const int16_t impedance = uint16_t(data[9]) | (uint16_t(data[10]) << 8);
     result.impedance = impedance;
 
     if (impedance == 0 || impedance >= 3000) {
       return false;
     }
+  }
+
+  return true;
+}
+
+bool XiaomiMiscale::parse_message_v3_(const std::vector<uint8_t> &message, ParseResult &result) {
+
+  const int32_t *data32 = reinterpret_cast<const int32_t*>(message.data());
+  int32_t data = *data32;
+
+  // weight
+  const int32_t weight = data & 0x7ff;
+  // heart rate
+  const int32_t heart_rate = (data >> 11) & 0x7f;
+  // impedance (50 + 250 kHz)
+  const int32_t impedance = data >> 18;
+
+  if (weight != 0) {
+    result.weight = float(weight) / 10;
+  }
+
+  if (heart_rate > 0 && heart_rate < 127) {
+    result.heart_rate = heart_rate + 50;
+  }
+
+  if (impedance != 0) {
+    if (weight == 0) {
+      // 50 kHz
+      result.impedance = float(impedance) / 10;
+    } /*else {
+      // 250 kHz
+      result.impedance_250 = float(impedance) / 10;
+    } */
   }
 
   return true;
@@ -157,8 +207,13 @@ bool XiaomiMiscale::report_results_(const optional<ParseResult> &result, const s
     ESP_LOGD(TAG, "  Weight: %.2fkg", *result->weight);
   }
   if (result->impedance.has_value()) {
-    ESP_LOGD(TAG, "  Impedance: %.0fohm", *result->impedance);
+    ESP_LOGD(TAG, "  Impedance (50 kHz): %.0fohm", *result->impedance);
   }
+
+  /*
+  if (result->impedance_250.has_value()) {
+    ESP_LOGD(TAG, "  Impedance (250 kHz): %.0fohm", *result->impedance_250);
+  }*/
 
   return true;
 }
