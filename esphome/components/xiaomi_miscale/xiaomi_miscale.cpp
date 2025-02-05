@@ -73,7 +73,7 @@ optional<ParseResult> XiaomiMiscale::parse_header_(const esp32_ble_tracker::Serv
     result.version = 1;
   } else if (service_data.uuid == esp32_ble_tracker::ESPBTUUID::from_uint16(0x181B) && service_data.data.size() == 13) {
     result.version = 2;
-  } else if (service_data.uuid == esp32_ble_tracker::ESPBTUUID::from_uint16(0xFE95) && service_data.data.size() == 11) {
+  } else if (service_data.uuid == esp32_ble_tracker::ESPBTUUID::from_uint16(0xFE95) && service_data.data.size() == 24) {
     result.version = 3;
   } else {
     ESP_LOGVV(TAG,
@@ -166,6 +166,7 @@ bool XiaomiMiscale::parse_message_s400_(const std::vector<uint8_t> &message, Par
 
   const int32_t *data32 = reinterpret_cast<const int32_t*>(message.data());
   int32_t data = *data32;
+
   ESP_LOGD(TAG, "Got data: %d", data);
 
   // weight
