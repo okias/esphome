@@ -91,7 +91,7 @@ bool XiaomiMiscale::parse_message_(const std::vector<uint8_t> &message, ParseRes
   } else if (result.version == 2) {
     return parse_message_v2_(message, result);
   } else {
-    return parse_message_v3_(message, result);
+    return parse_message_s400_(message, result);
   }
 }
 
@@ -162,10 +162,11 @@ bool XiaomiMiscale::parse_message_v2_(const std::vector<uint8_t> &message, Parse
   return true;
 }
 
-bool XiaomiMiscale::parse_message_v3_(const std::vector<uint8_t> &message, ParseResult &result) {
+bool XiaomiMiscale::parse_message_s400_(const std::vector<uint8_t> &message, ParseResult &result) {
 
   const int32_t *data32 = reinterpret_cast<const int32_t*>(message.data());
   int32_t data = *data32;
+  ESP_LOGD(TAG, "Got data: %d", data);
 
   // weight
   const int32_t weight = data & 0x7ff;
